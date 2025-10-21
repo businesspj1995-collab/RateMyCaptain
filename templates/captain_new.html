@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Add a Captain</h2>
+<form method="post" class="col" style="max-width:520px;">
+  <label>Name
+    <input class="input" name="name" placeholder="e.g., Taylor Nguyen" required>
+  </label>
+  <label>Base
+    <select class="input" name="base" required>
+      <option value="" selected disabled>Select base</option>
+      {% for b in bases %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Fleet
+    <select class="input" name="fleet" required>
+      <option value="" selected disabled>Select fleet</option>
+      {% for f in fleets %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="btn" type="submit">Add Captain</button>
+</form>
+{% endblock %}

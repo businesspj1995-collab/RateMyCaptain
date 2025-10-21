@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="trust">
+  <div class="shield">🛡️</div>
+  <div>
+    <div class="trust-title">Anonymous & Professional</div>
+    <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
+  </div>
+</div>
+
+<form method="get" class="row">
+  <input class="input" name="q" placeholder="Search by captain, base, or fleet..." value="{{ q }}">
+  <button class="btn" type="submit">Search</button>
+  {% if session.get('authed') %}
+    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
+  {% endif %}
+</form>
+
+<div class="cards">
+{% for c, avg, count in data %}
+  <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
+    <div class="card-title">{{ c.name }}</div>
+    <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
+    <div class="mt8">
+      {% if count >= min_display %}
+        Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
+      {% elif count > 0 %}
+        <em>More ratings needed ({{ count }}/{{ min_display }})</em>
+      {% else %}
+        <em>No reviews yet</em>
+      {% endif %}
+    </div>
+  </a>
+{% endfor %}
+</div>
+{% endblock %}

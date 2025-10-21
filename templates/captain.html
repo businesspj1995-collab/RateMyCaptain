@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row space-between center">
+  <div>
+    <h2>{{ captain.name }}</h2>
+    <div class="muted">{{ captain.base or "—" }} · {{ captain.fleet or "—" }}</div>
+    {% if last_updated %}
+      <div class="small muted">Last updated {{ last_updated }}{% if pending_count %} · {{ pending_count }} pending suggestion{{ 's' if pending_count != 1 else '' }}{% endif %}</div>
+    {% endif %}
+  </div>
+  <div class="row" style="gap:8px;">
+    {% if session.get('authed') %}
+      <a class="btn" href="{{ url_for('review_new', cid=captain.id) }}">Rate this Captain</a>
+      <a class="btn subtle" href="{{ url_for('suggest_update', cid=captain.id) }}">Suggest Update</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if count >= min_display %}
+  <p class="mt12">Overall: <strong>{{ overall }}</strong> / 5 (based on {{ count }} reviews)</p>
+
+  <h3>Operational & Teamwork</h3>
+  <div class="grid">
+    {% for key,label in eval_labels_1 %}
+      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
+    {% endfor %}
+  </div>
+
+  <h3>Airmanship & Professional Conduct</h3>
+  <div class="grid">
+    {% for key,label in eval_labels_2 %}
+      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
+    {% endfor %}
+  </div>
+
+  <h3>Overall Impression</h3>
+  <div class="grid">
+    <div class="chip"><div>Would Fly Again</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get('would_fly_again',0)) }}</div></div>
+  </div>
+
+  <h3>Personality & Style <span class="small muted">(does not affect overall score)</span></h3>
+  <div class="grid">
+    {% for key,label in style_labels %}
+      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
+    {% endfor %}
+  </div>
+{% elif count > 0 %}
+  <p class="mt12"><em>More ratings needed to show averages ({{ count }}/{{ min_display }}).</em></p>
+{% else %}
+  <p class="mt12"><em>No reviews yet. Be the first.</em></p>
+{% endif %}
+{% endblock %}

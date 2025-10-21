@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Rate {{ captain.name }}</h2>
+<p class="muted small">(1 = negative → 5 = positive) • No text is collected.</p>
+
+<form method="post" class="col">
+  <h3 class="mt12">Crew Coordination & Workflow</h3>
+  {% for key, label, hint in eval_block_1 %}
+    <div class="q">
+      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
+      <div class="scale">
+        {% for v in range(1,6) %}
+          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+
+  <h3 class="mt12">Airmanship & Professional Conduct</h3>
+  {% for key, label, hint in eval_block_2 %}
+    <div class="q">
+      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
+      <div class="scale">
+        {% for v in range(1,6) %}
+          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+
+  <h3 class="mt12">Overall Impression</h3>
+  <div class="q">
+    <label class="q-label">Would Fly Again <span class="muted small">(1 = avoid → 5 = definitely would)</span></label>
+    <div class="scale">
+      {% for v in range(1,6) %}
+        <label class="dot"><input type="radio" name="would_fly_again" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <h3 class="mt12">Personality & Style <span class="small muted">(does not affect overall score)</span></h3>
+  {% for key, label, hint in style_block %}
+    <div class="q">
+      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
+      <div class="scale">
+        {% for v in range(1,6) %}
+          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+
+  <button class="btn" type="submit">Submit</button>
+</form>
+{% endblock %}

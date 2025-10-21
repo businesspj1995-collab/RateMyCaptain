@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Suggest Base/Fleet Update for {{ captain.name }}</h2>
+<p class="small muted">When two different FOs suggest the same change within 14 days, it auto-applies.</p>
+<form method="post" class="col" style="max-width:520px;">
+  <label>New Base
+    <select class="input" name="base" required>
+      <option value="" selected disabled>Select base</option>
+      {% for b in bases %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>New Fleet
+    <select class="input" name="fleet" required>
+      <option value="" selected disabled>Select fleet</option>
+      {% for f in fleets %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="btn" type="submit">Submit Suggestion</button>
+</form>
+
+{% if pending and pending|length > 0 %}
+  <h3 class="mt12">Pending Suggestions</h3>
+  <ul>
+    {% for s in pending %}
+      <li class="small">{{ s.new_base }} / {{ s.new_fleet }} • submitted {{ s.created_at.date() }}</li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}
