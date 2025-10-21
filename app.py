@@ -754,5 +754,7 @@ def suggest_update(cid):
 # ----------------------------
 if __name__ == "__main__":
     bootstrap_db()
-    print(f"\n{APP_NAME} running at http://127.0.0.1:5000  (Ctrl+C to stop)\n")
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Render assigns this dynamically
+    print(f"\n{APP_NAME} running on 0.0.0.0:{port} (Render)\n")
+    app.run(host="0.0.0.0", port=port, debug=False)
+
