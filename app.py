@@ -23,7 +23,8 @@ SUGGESTION_WINDOW_DAYS = 14
 CONSENSUS_THRESHOLD = 2
 SUGGESTION_EXPIRE_DAYS = 60
 
-ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","SFO","LAX","IAH","CLE","LGA"]  # edit as you like
+ALLOWED_BASES = ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","DCA","SFO","LAX","CLE","LGA","GUM","LAS","MCO"]
+  # edit as you like
 ALLOWED_FLEETS = ["737","757","767","777","787","A319","A320","A321"]
 
 # ----------------------------
