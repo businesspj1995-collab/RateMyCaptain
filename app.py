@@ -524,26 +524,41 @@ def new_identifier(prefix="CA"):
 # ----------------------------
 # Routes
 # ----------------------------
-@app.route("/", methods=["GET"])
+@app.route("/")
 def index():
-    q = request.args.get("q", "").strip()
-    with Session(engine) as s:
-        stmt = select(Captain)
-        if q:
-            like = f"%{q}%"
-            stmt = stmt.where(or_(Captain.name.ilike(like), Captain.base.ilike(like), Captain.fleet.ilike(like)))
-        captains = s.scalars(stmt.order_by(Captain.name.asc())).all()
+    stmt = select(Captain)
+    q = request.args.get("q", "")
 
-        data = []
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(or_(Captain.name.ilike(like),
+                              Captain.base.ilike(like),
+                              Captain.fleet.ilike(like)))
+
+    captains = s.scalars(stmt.order_by(Captain.name.asc())).all()
+
+    data = []
+    with Session(engine) as s:
         for c in captains:
             reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
             count = len(reviews)
             avg = None
             if count >= MIN_DISPLAY_REVIEWS:
-                avg = sum(overall_from_review(r) for r in reviews)/count
-            data.append((c, avg, count))
+                avg = sum(overall_from_review(r) for r in reviews) / count
+                data.append((c, avg, count))
 
-    return render_template("index.html", data=data, q=q, min_display=MIN_DISPLAY_REVIEWS, title=APP_NAME)
+        # 👇 this is the new line that gathers all captain names for autocomplete
+        all_names = [c.name for c in captains]
+
+    # 👇 updated render_template call that passes all_names to index.html
+    return render_template(
+        "index.html",
+        data=data,
+        q=q,
+        min_display=MIN_DISPLAY_REVIEWS,
+        title=APP_NAME,
+        all_names=all_names
+    )
 
 @app.route("/login", methods=["GET","POST"])
 def login():
