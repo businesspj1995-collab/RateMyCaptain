@@ -9,12 +9,18 @@
 </div>
 
 <form method="get" class="row">
-  <input class="input" name="q" placeholder="Search by captain, base, or fleet..." value="{{ q }}">
+  <input class="input" name="q" list="names" placeholder="Search by captain, base, or fleet..." value="{{ q }}">
   <button class="btn" type="submit">Search</button>
   {% if session.get('authed') %}
     <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
   {% endif %}
 </form>
+
+<datalist id="names">
+  {% for n in all_names %}
+    <option value="{{ n }}"></option>
+  {% endfor %}
+</datalist>
 
 <div class="cards">
 {% for c, avg, count in data %}
