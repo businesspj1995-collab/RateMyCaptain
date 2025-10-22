@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Top-rated Captains</h2>
+
+<form class="row" method="get" style="margin-top:8px;gap:8px;">
+  <select class="input" name="base">
+    <option value="">All Bases</option>
+    {% for b in bases %}
+      <option value="{{ b }}" {% if sel_base==b %}selected{% endif %}>{{ b }}</option>
+    {% endfor %}
+  </select>
+  <select class="input" name="fleet">
+    <option value="">All Fleets</option>
+    {% for f in fleets %}
+      <option value="{{ f }}" {% if sel_fleet==f %}selected{% endif %}>{{ f }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn" type="submit">Filter</button>
+</form>
+
+{% if rows and rows|length > 0 %}
+  <div class="cards" style="margin-top:12px;">
+    {% for c, avg, count in rows %}
+      <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
+        <div class="card-title">{{ c.name }}</div>
+        <div class="muted">{{ c.base }} · {{ c.fleet }}</div>
+        <div class="mt8">Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)</div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="mt12"><em>No captains meet the {{ min_reviews }}-review minimum for this filter.</em></p>
+{% endif %}
+{% endblock %}

@@ -753,6 +753,44 @@ def suggest_update(cid):
 # ----------------------------
 # Main
 # ----------------------------
+@app.route("/top")
+def top_rated():
+    # Optional filters: /top?base=ORD&fleet=737
+    base = (request.args.get("base") or "").upper().strip()
+    fleet = (request.args.get("fleet") or "").upper().strip()
+    min_reviews = MIN_DISPLAY_REVIEWS
+    top_limit = 10
+
+    rows = []
+    with Session(engine) as s:
+        captains = s.scalars(select(Captain)).all()
+        for c in captains:
+            if base and c.base != base:
+                continue
+            if fleet and c.fleet != fleet:
+                continue
+            reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
+            count = len(reviews)
+            if count < min_reviews:
+                continue
+            avg = sum(overall_from_review(r) for r in reviews) / count
+            rows.append((c, round(avg, 2), count))
+
+    # Sort: best average first, then by review count (desc)
+    rows.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    rows = rows[:top_limit]
+
+    return render_template(
+        "top.html",
+        rows=rows,
+        bases=ALLOWED_BASES,
+        fleets=ALLOWED_FLEETS,
+        sel_base=base,
+        sel_fleet=fleet,
+        min_reviews=min_reviews,
+        title="Top Rated"
+    )
+
 if __name__ == "__main__":
     bootstrap_db()
     port = int(os.environ.get("PORT", 5000))  # Render assigns this dynamically
