@@ -11,12 +11,14 @@
     <div class="hdr">
       <h1><a href="{{ url_for('index') }}">Rate My Captain</a></h1>
       <nav>
-        {% if not session.get('authed') %}
-          <a class="btn" href="{{ url_for('login') }}">Enter</a>
-        {% else %}
-          <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
-        {% endif %}
-      </nav>
+  {% if not session.get('authed') %}
+    <a class="btn" href="{{ url_for('login') }}">Enter</a>
+  {% else %}
+    <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
+    <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
+  {% endif %}
+</nav>
+
     </div>
   </header>
   <main class="wrap">
