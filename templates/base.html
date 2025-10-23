@@ -11,16 +11,16 @@
     <div class="hdr">
       <h1><a href="{{ url_for('index') }}">Rate My Captain</a></h1>
       <nav>
-  {% if not session.get('authed') %}
-    <a class="btn" href="{{ url_for('login') }}">Enter</a>
-  {% else %}
-    <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
-    <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
-  {% endif %}
-</nav>
-
+        {% if not session.get('authed') %}
+          <button class="btn" id="openAccess" type="button">FO Access</button>
+        {% else %}
+          <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
+          <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
+        {% endif %}
+      </nav>
     </div>
   </header>
+
   <main class="wrap">
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -29,9 +29,58 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+
   <footer class="wrap small muted" style="margin-top:40px;">
     <hr/>
-    <p>Built by line pilots for line pilots. Keep it professional.</p>
+    <p>Built by FOs, for FOs.</p>
   </footer>
+
+  <!-- Slide-in Access Drawer -->
+  {% if not session.get('authed') %}
+  <div id="accessPanel" class="access-panel">
+    <div class="access-inner">
+      <div class="access-head">
+        <strong>FO Access</strong>
+        <button class="access-close" id="closeAccess" aria-label="Close">✕</button>
+      </div>
+      <p class="muted small" style="margin:0 0 10px;">FOs only. Enter the access code to continue.</p>
+      <form method="post" action="{{ url_for('login') }}" class="row" style="gap:8px;">
+        <input class="input" name="code" placeholder="Access Code" required autocomplete="off" />
+        <button class="btn" type="submit">Unlock</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <script>
+  (function () {
+    const openBtn = document.getElementById('openAccess');
+    const panel   = document.getElementById('accessPanel');
+    const closeBtn= document.getElementById('closeAccess');
+    if (!openBtn || !panel) return;
+
+    function openPanel() {
+      panel.classList.add('show');
+      setTimeout(() => {
+        const i = panel.querySelector('input[name="code"]');
+        if (i) i.focus();
+      }, 200);
+    }
+    function closePanel() {
+      panel.classList.remove('show');
+    }
+
+    openBtn.addEventListener('click', openPanel);
+    if (closeBtn) closeBtn.addEventListener('click', closePanel);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePanel();
+    });
+
+    {% if request.endpoint == 'login' and not session.get('authed') %}
+      openPanel();
+    {% endif %}
+  })();
+  </script>
 </body>
 </html>

@@ -1,6 +1,5 @@
 # app.py
-# FOmatters / Rate My Captain - Single-file Flask app (consolidated)
-# Run locally: python app.py  -> http://127.0.0.1:5000
+# FOmatters / Rate My Captain — Option B: Hero access on homepage
 
 import os, uuid, hmac, hashlib, secrets, string
 from datetime import datetime, timedelta
@@ -22,7 +21,7 @@ MIN_DISPLAY_REVIEWS = 3
 
 SUGGESTION_WINDOW_DAYS = 14
 CONSENSUS_THRESHOLD = 2
-SUGGESTION_EXPIRE_DAYS = 60
+SUGGESTION_EXPIRE_DAYS = 60  # (reserved for future)
 
 # Updated bases (added DCA, GUM, LAS, MCO)
 ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","DCA","SFO","LAX","CLE","LGA","GUM","LAS","MCO"]
@@ -47,7 +46,7 @@ def _write_if_missing(path: Path, content: str):
     if not path.exists():
         path.write_text(content.strip("\n"), encoding="utf-8")
 
-# Base layout (updated footer tagline + nav Top Rated)
+# Base layout (clean header; no modal JS; hero handled in index.html)
 _write_if_missing(
     TEMPLATES / "base.html",
     """
@@ -65,7 +64,7 @@ _write_if_missing(
       <h1><a href="{{ url_for('index') }}">FOmatters</a></h1>
       <nav>
         {% if not session.get('authed') %}
-          <a class="btn" href="{{ url_for('login') }}">Enter</a>
+          <a class="btn subtle" href="{{ url_for('index') }}">Access</a>
         {% else %}
           <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
           <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
@@ -73,6 +72,7 @@ _write_if_missing(
       </nav>
     </div>
   </header>
+
   <main class="wrap">
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -81,6 +81,7 @@ _write_if_missing(
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+
   <footer class="wrap small muted" style="margin-top:40px;">
     <hr/>
     <p>Built by FOs, for FOs.</p>
@@ -90,52 +91,68 @@ _write_if_missing(
 """
 )
 
-# Homepage (with trust banner + search + datalist for autocomplete)
+# Homepage
+# - If NOT authed: shows hero with access code form (Option B)
+# - If authed: shows search + cards (with name autocomplete)
 _write_if_missing(
     TEMPLATES / "index.html",
     """
 {% extends "base.html" %}
 {% block content %}
-<div class="trust">
-  <div class="shield">🛡️</div>
-  <div>
-    <div class="trust-title">Anonymous & Professional</div>
-    <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
-  </div>
-</div>
 
-<form method="get" class="row">
-  <input class="input" name="q" list="names"
-         placeholder="Search by captain, base, or fleet..." value="{{ q }}">
-  <button class="btn" type="submit">Search</button>
-  {% if session.get('authed') %}
-    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
-  {% endif %}
-</form>
-
-<datalist id="names">
-  {% for n in all_names %}
-    <option value="{{ n }}"></option>
-  {% endfor %}
-</datalist>
-
-<div class="cards">
-{% for c, avg, count in data %}
-  <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
-    <div class="card-title">{{ c.name }}</div>
-    <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
-    <div class="mt8">
-      {% if count >= min_display %}
-        Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
-      {% elif count > 0 %}
-        <em>More ratings needed ({{ count }}/{{ min_display }})</em>
-      {% else %}
-        <em>No reviews yet</em>
-      {% endif %}
+{% if not session.get('authed') %}
+  <section class="hero">
+    <div class="hero-inner">
+      <h2 class="hero-title">FOmatters Access</h2>
+      <p class="muted">FOs only. Enter the access code to join your peers.</p>
+      <form method="post" action="{{ url_for('login') }}" class="row hero-form" onsubmit="this.querySelector('button').disabled=true;">
+        <input class="input" name="code" placeholder="Access Code" required autocomplete="off">
+        <button class="btn" type="submit">Unlock</button>
+      </form>
+      <p class="small muted mt8">No names, emails, or IDs — just 1–5 ratings. 100% anonymous.</p>
     </div>
-  </a>
-{% endfor %}
-</div>
+  </section>
+{% else %}
+  <div class="trust">
+    <div class="shield">🛡️</div>
+    <div>
+      <div class="trust-title">Anonymous & Professional</div>
+      <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
+    </div>
+  </div>
+
+  <form method="get" class="row">
+    <input class="input" name="q" list="names"
+           placeholder="Search by captain, base, or fleet..." value="{{ q }}">
+    <button class="btn" type="submit">Search</button>
+    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
+  </form>
+
+  <datalist id="names">
+    {% for n in all_names %}
+      <option value="{{ n }}"></option>
+    {% endfor %}
+  </datalist>
+
+  <div class="cards">
+  {% for c, avg, count in data %}
+    <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
+      <div class="card-title">{{ c.name }}</div>
+      <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
+      <div class="mt8">
+        {% if count >= min_display %}
+          Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
+        {% elif count > 0 %}
+          <em>More ratings needed ({{ count }}/{{ min_display }})</em>
+        {% else %}
+          <em>No reviews yet</em>
+        {% endif %}
+      </div>
+    </a>
+  {% endfor %}
+  </div>
+{% endif %}
+
 {% endblock %}
 """
 )
@@ -155,10 +172,8 @@ _write_if_missing(
     {% endif %}
   </div>
   <div class="row" style="gap:8px;">
-    {% if session.get('authed') %}
-      <a class="btn" href="{{ url_for('review_new', cid=captain.id) }}">Rate this Captain</a>
-      <a class="btn subtle" href="{{ url_for('suggest_update', cid=captain.id) }}">Suggest Update</a>
-    {% endif %}
+    <a class="btn" href="{{ url_for('review_new', cid=captain.id) }}">Rate this Captain</a>
+    <a class="btn subtle" href="{{ url_for('suggest_update', cid=captain.id) }}">Suggest Update</a>
   </div>
 </div>
 
@@ -199,7 +214,7 @@ _write_if_missing(
 """
 )
 
-# New Review page (radio scales)
+# New Review (radio scales)
 _write_if_missing(
     TEMPLATES / "review_new.html",
     """
@@ -261,15 +276,15 @@ _write_if_missing(
 """
 )
 
-# Login
+# Login (kept for direct /login visits; homepage has hero form already)
 _write_if_missing(
     TEMPLATES / "login.html",
     """
 {% extends "base.html" %}
 {% block content %}
 <h2>Access</h2>
-<form method="post" class="col">
-  <input class="input" name="code" placeholder="Invite code" required>
+<form method="post" class="col" style="max-width:420px;">
+  <input class="input" name="code" placeholder="Access Code" required>
   <button class="btn" type="submit">Enter</button>
 </form>
 {% endblock %}
@@ -341,7 +356,7 @@ _write_if_missing(
 """
 )
 
-# Top Rated page (new)
+# Top Rated page
 _write_if_missing(
     TEMPLATES / "top.html",
     """
@@ -382,42 +397,46 @@ _write_if_missing(
 """
 )
 
-# CSS
+# CSS (no modal styles; includes hero section)
 _write_if_missing(
     STATIC / "main.css",
     """
-:root { --fg:#111; --bg:#fff; --muted:#666; --accent:#2563eb; --card:#f7f7f8; --line:#e5e7eb; }
-*{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+:root{--fg:#111;--bg:#fff;--muted:#666;--accent:#2563eb;--card:#f7f7f8;--line:#e5e7eb}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--fg);background:var(--bg)}
 a{color:inherit;text-decoration:none}
 .wrap{max-width:960px;margin:0 auto;padding:16px}
 .hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
-h1{font-size:20px;margin:8px 0}
-h2{margin:12px 0 4px}
+h1{font-size:20px;margin:8px 0}h2{margin:12px 0 4px}
 .row{display:flex;gap:8px;align-items:flex-start}
 .col{display:flex;flex-direction:column;gap:12px}
 .space-between{justify-content:space-between}
 .center{align-items:center}
 .mt8{margin-top:8px}.mt12{margin-top:12px}
 .small{font-size:12px}.muted{color:var(--muted)}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 14px;cursor:pointer}
-.btn:hover{opacity:.95}
-.btn.subtle{background:#eef2ff;color:#1d4ed8}
-.input{padding:10px 12px;border:1px solid var(--line);border-radius:10px;min-width:240px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:500;transition:opacity .15s}
+.btn:hover{opacity:.95}.btn.subtle{background:#eef2ff;color:#1d4ed8}
+.input{padding:10px 12px;border:1px solid var(--line);border-radius:10px;min-width:240px;font-size:14px}
 .flash{background:#fff3cd;color:#8a6d3b;border:1px solid #ffeeba;border-radius:10px;padding:8px 12px;margin:12px 0}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:12px}
-.card{border:1px solid var(--line);background:var(--card);padding:12px;border-radius:14px}
+.card{border:1px solid var(--line);background:var(--card);padding:12px;border-radius:14px;transition:transform .1s,box-shadow .1s}
+.card:hover{transform:translateY(-2px);box-shadow:0 2px 6px rgba(0,0,0,.05)}
 .card-title{font-weight:600;margin-bottom:4px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:12px}
 .chip{border:1px solid var(--line);padding:10px;border-radius:12px;background:#fff;display:flex;justify-content:space-between;align-items:center}
 .chip-value{font-weight:700}
 .trust{display:flex;gap:10px;align-items:flex-start;background:#f7f9fc;border:1px solid var(--line);padding:12px;border-radius:12px;margin-bottom:12px}
-.trust-title{font-weight:600}
-.trust .shield{font-size:20px}
+.trust-title{font-weight:600}.trust .shield{font-size:20px}
 .q{padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .q-label{display:block;margin-bottom:6px;font-weight:600}
 .scale{display:flex;gap:14px;align-items:center}
 .dot{display:flex;flex-direction:column;align-items:center;font-size:12px;color:#444}
 .dot input[type=radio]{accent-color:#2563eb;transform:scale(1.2);cursor:pointer}
+
+/* Hero Access (Option B) */
+.hero{border:1px solid var(--line);background:#f7f9fc;border-radius:12px;padding:24px;margin-top:8px}
+.hero-title{margin:0 0 4px}
+.hero-form .input{min-width:220px}
 """
 )
 
@@ -443,31 +462,26 @@ class Review(Base):
     captain_id = Column(Integer, ForeignKey("captains.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewer_hash = Column(String, nullable=True)
-
-    # Crew Coordination & Workflow (1-7)
+    # Crew Coordination & Workflow
     crm_inclusion = Column(Integer, nullable=False)
     communication = Column(Integer, nullable=False)
     easy_to_fly = Column(Integer, nullable=False)
-    micromanage = Column(Integer, nullable=False)  # invert
+    micromanage = Column(Integer, nullable=False)  # inverse later
     workload_share = Column(Integer, nullable=False)
     helps_box = Column(Integer, nullable=False)
     helps_walk = Column(Integer, nullable=False)
-
-    # Airmanship & Conduct (8-12)
+    # Airmanship & Conduct
     skill_sop = Column(Integer, nullable=False)
     temperament = Column(Integer, nullable=False)
     respectfulness = Column(Integer, nullable=False)
     boundaries = Column(Integer, nullable=False)
     cabin_respect = Column(Integer, nullable=False)
-
-    # Overall Impression (13)
+    # Overall
     would_fly_again = Column(Integer, nullable=False)
-
-    # Personality & Style (non-scoring) (14-16)
+    # Personality (non-scoring)
     chattiness = Column(Integer, nullable=False)
     mentorship = Column(Integer, nullable=False)
     humor_vibe = Column(Integer, nullable=False)
-
     captain = relationship("Captain", back_populates="reviews")
 
 class CaptainAssignment(Base):
@@ -497,8 +511,7 @@ def bootstrap_db():
         if s.query(Captain).count() == 0:
             for nm, b, f in [("John Smith","ORD","737"),("Alex Chen","IAH","787"),("Maria Lopez","DEN","A320")]:
                 c = Captain(employee_id=f"CA-{secrets.token_hex(4).upper()}", name=nm, base=b, fleet=f)
-                s.add(c)
-                s.flush()
+                s.add(c); s.flush()
                 s.add(CaptainAssignment(captain_id=c.id, base=b, fleet=f))
             s.commit()
 
@@ -569,12 +582,15 @@ def new_identifier(prefix="CA"):
 # ----------------------------
 # Routes
 # ----------------------------
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
-    q = (request.args.get("q", "") or "").strip()
+    if not session.get("authed"):
+        # Show hero access (no data needed)
+        return render_template("index.html", title=APP_NAME)
 
+    # Authed: show search + cards
+    q = (request.args.get("q", "") or "").strip()
     with Session(engine) as s:
-        # build query
         stmt = select(Captain)
         if q:
             like = f"%{q}%"
@@ -583,11 +599,8 @@ def index():
                 Captain.base.ilike(like),
                 Captain.fleet.ilike(like)
             ))
-
-        # fetch captains
         captains = s.scalars(stmt.order_by(Captain.name.asc())).all()
 
-        # build cards data (avg only shown if enough reviews)
         data = []
         for c in captains:
             reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
@@ -597,7 +610,6 @@ def index():
                 avg = sum(overall_from_review(r) for r in reviews) / count
             data.append((c, avg, count))
 
-        # names for the autocomplete
         all_names = [c.name for c in captains]
 
     return render_template(
@@ -616,17 +628,18 @@ def login():
             session["authed"] = True
             return redirect(url_for("index"))
         flash("Invalid code.")
+    # Optional: if someone hits /login directly, show the simple form
     return render_template("login.html", title=f"{APP_NAME} · Access")
 
 @app.route("/captains/<int:cid>")
 def captain_page(cid):
+    if not session.get("authed"): return redirect(url_for("index"))
     with Session(engine) as s:
         c = s.get(Captain, cid)
         if not c: return "Not found", 404
         reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
         count = len(reviews)
-        cat_avgs = {}
-        overall = None
+        cat_avgs, overall = {}, None
         if count >= MIN_DISPLAY_REVIEWS:
             all_keys = EVAL_KEYS + STYLE_KEYS
             for key in all_keys:
@@ -649,7 +662,7 @@ def captain_page(cid):
 
 @app.route("/review/new/<int:cid>", methods=["GET","POST"])
 def review_new(cid):
-    if not session.get("authed"): return redirect(url_for("login"))
+    if not session.get("authed"): return redirect(url_for("index"))
     with Session(engine) as s:
         c = s.get(Captain, cid)
         if not c: return "Not found", 404
@@ -673,8 +686,7 @@ def review_new(cid):
                 v = request.form.get(key)
                 payload[key] = int(v) if v and v.isdigit() else 3
             r = Review(captain_id=cid, reviewer_hash=r_hash, **payload)
-            s.add(r)
-            s.commit()
+            s.add(r); s.commit()
         resp = redirect(url_for("captain_page", cid=cid))
         if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
         return resp
@@ -689,7 +701,7 @@ def review_new(cid):
 
 @app.route("/captain/new", methods=["GET","POST"])
 def captain_new():
-    if not session.get("authed"): return redirect(url_for("login"))
+    if not session.get("authed"): return redirect(url_for("index"))
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         base = (request.form.get("base") or "").strip().upper()
@@ -717,7 +729,7 @@ def captain_new():
 
 @app.route("/captain/<int:cid>/suggest", methods=["GET","POST"])
 def suggest_update(cid):
-    if not session.get("authed"): return redirect(url_for("login"))
+    if not session.get("authed"): return redirect(url_for("index"))
     with Session(engine) as s:
         c = s.get(Captain, cid)
         if not c: return "Not found", 404
@@ -787,9 +799,9 @@ def suggest_update(cid):
     if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
     return resp
 
-# ---------- NEW: Top Rated ----------
 @app.route("/top")
 def top_rated():
+    if not session.get("authed"): return redirect(url_for("index"))
     base = (request.args.get("base") or "").upper().strip()
     fleet = (request.args.get("fleet") or "").upper().strip()
     min_reviews = MIN_DISPLAY_REVIEWS
@@ -799,14 +811,11 @@ def top_rated():
     with Session(engine) as s:
         captains = s.scalars(select(Captain)).all()
         for c in captains:
-            if base and c.base != base:
-                continue
-            if fleet and c.fleet != fleet:
-                continue
+            if base and c.base != base: continue
+            if fleet and c.fleet != fleet: continue
             reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
             count = len(reviews)
-            if count < min_reviews:
-                continue
+            if count < min_reviews: continue
             avg = sum(overall_from_review(r) for r in reviews)/count
             rows.append((c, round(avg, 2), count))
 
