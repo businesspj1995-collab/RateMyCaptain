@@ -1,42 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="trust">
-  <div class="shield">🛡️</div>
-  <div>
-    <div class="trust-title">Anonymous & Professional</div>
-    <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
-  </div>
-</div>
 
-<form method="get" class="row">
-  <input class="input" name="q" list="names" placeholder="Search by captain, base, or fleet..." value="{{ q }}">
-  <button class="btn" type="submit">Search</button>
-  {% if session.get('authed') %}
-    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
-  {% endif %}
-</form>
-
-<datalist id="names">
-  {% for n in all_names %}
-    <option value="{{ n }}"></option>
-  {% endfor %}
-</datalist>
-
-<div class="cards">
-{% for c, avg, count in data %}
-  <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
-    <div class="card-title">{{ c.name }}</div>
-    <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
-    <div class="mt8">
-      {% if count >= min_display %}
-        Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
-      {% elif count > 0 %}
-        <em>More ratings needed ({{ count }}/{{ min_display }})</em>
-      {% else %}
-        <em>No reviews yet</em>
-      {% endif %}
+{% if not session.get('authed') %}
+  <!-- Hero access (Option B) -->
+  <section class="hero">
+    <div class="hero-inner">
+      <h2 class="hero-title">FOmatters Access</h2>
+      <p class="muted">FOs only. Enter the access code to join your peers.</p>
+      <form method="post" action="{{ url_for('login') }}" class="row hero-form" onsubmit="this.querySelector('button').disabled=true;">
+        <input class="input" name="code" placeholder="Access Code" required autocomplete="off">
+        <button class="btn" type="submit">Unlock</button>
+      </form>
+      <p class="small muted mt8">No names, emails, or IDs — just 1–5 ratings. 100% anonymous.</p>
     </div>
-  </a>
-{% endfor %}
-</div>
+  </section>
+{% else %}
+  <div class="trust">
+    <div class="shield">🛡️</div>
+    <div>
+      <div class="trust-title">Anonymous & Professional</div>
+      <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
+    </div>
+  </div>
+
+  <form method="get" class="row">
+    <input class="input" name="q" list="names"
+           placeholder="Search by captain, base, or fleet..." value="{{ q }}">
+    <button class="btn" type="submit">Search</button>
+    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
+  </form>
+
+  <datalist id="names">
+    {% for n in all_names %}
+      <option value="{{ n }}"></option>
+    {% endfor %}
+  </datalist>
+
+  <div class="cards">
+  {% for c, avg, count in data %}
+    <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
+      <div class="card-title">{{ c.name }}</div>
+      <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
+      <div class="mt8">
+        {% if count >= min_display %}
+          Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
+        {% elif count > 0 %}
+          <em>More ratings needed ({{ count }}/{{ min_display }})</em>
+        {% else %}
+          <em>No reviews yet</em>
+        {% endif %}
+      </div>
+    </a>
+  {% endfor %}
+  </div>
+{% endif %}
+
 {% endblock %}

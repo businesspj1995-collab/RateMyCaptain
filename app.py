@@ -1,12 +1,11 @@
-# app.py
-# FOmatters / Rate My Captain — Option B: Hero access on homepage
+# app.py — FOmatters / Rate My Captain (Option B: Hero access on homepage)
 
 import os, uuid, hmac, hashlib, secrets, string
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, make_response
-from sqlalchemy import create_engine, select, Column, Integer, String, DateTime, ForeignKey, Text, and_, or_, func
+from sqlalchemy import create_engine, select, Column, Integer, String, DateTime, ForeignKey, and_, or_, func
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 # ----------------------------
@@ -15,15 +14,14 @@ from sqlalchemy.orm import Session, declarative_base, relationship
 APP_NAME = "FOmatters"
 DB_PATH = "app.db"
 SECRET_KEY = os.getenv("SECRET_KEY") or "dev-secret-change-me"
-INVITE_CODE = os.getenv("INVITE_CODE") or "FOmatters"  # your current code
+INVITE_CODE = os.getenv("INVITE_CODE") or "FOmatters"
 REVIEWER_PEPPER = os.getenv("REVIEWER_PEPPER") or "dev-pepper-change-me"
 MIN_DISPLAY_REVIEWS = 3
 
 SUGGESTION_WINDOW_DAYS = 14
 CONSENSUS_THRESHOLD = 2
-SUGGESTION_EXPIRE_DAYS = 60  # (reserved for future)
 
-# Updated bases (added DCA, GUM, LAS, MCO)
+# Updated bases
 ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","DCA","SFO","LAX","CLE","LGA","GUM","LAS","MCO"]
 ALLOWED_FLEETS = ["737","757","767","777","787","A319","A320","A321"]
 
@@ -34,414 +32,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = SECRET_KEY
 
 # ----------------------------
-# Filesystem bootstrap (write templates/css if missing)
-# ----------------------------
-BASE_DIR = Path(__file__).parent
-TEMPLATES = BASE_DIR / "templates"
-STATIC = BASE_DIR / "static"
-TEMPLATES.mkdir(exist_ok=True)
-STATIC.mkdir(exist_ok=True)
-
-def _write_if_missing(path: Path, content: str):
-    if not path.exists():
-        path.write_text(content.strip("\n"), encoding="utf-8")
-
-# Base layout (clean header; no modal JS; hero handled in index.html)
-_write_if_missing(
-    TEMPLATES / "base.html",
-    """
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>{{ title or "FOmatters" }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-</head>
-<body>
-  <header class="wrap">
-    <div class="hdr">
-      <h1><a href="{{ url_for('index') }}">FOmatters</a></h1>
-      <nav>
-        {% if not session.get('authed') %}
-          <a class="btn subtle" href="{{ url_for('index') }}">Access</a>
-        {% else %}
-          <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
-          <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
-        {% endif %}
-      </nav>
-    </div>
-  </header>
-
-  <main class="wrap">
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <div class="flash">{{ messages[0] }}</div>
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-  </main>
-
-  <footer class="wrap small muted" style="margin-top:40px;">
-    <hr/>
-    <p>Built by FOs, for FOs.</p>
-  </footer>
-</body>
-</html>
-"""
-)
-
-# Homepage
-# - If NOT authed: shows hero with access code form (Option B)
-# - If authed: shows search + cards (with name autocomplete)
-_write_if_missing(
-    TEMPLATES / "index.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-
-{% if not session.get('authed') %}
-  <section class="hero">
-    <div class="hero-inner">
-      <h2 class="hero-title">FOmatters Access</h2>
-      <p class="muted">FOs only. Enter the access code to join your peers.</p>
-      <form method="post" action="{{ url_for('login') }}" class="row hero-form" onsubmit="this.querySelector('button').disabled=true;">
-        <input class="input" name="code" placeholder="Access Code" required autocomplete="off">
-        <button class="btn" type="submit">Unlock</button>
-      </form>
-      <p class="small muted mt8">No names, emails, or IDs — just 1–5 ratings. 100% anonymous.</p>
-    </div>
-  </section>
-{% else %}
-  <div class="trust">
-    <div class="shield">🛡️</div>
-    <div>
-      <div class="trust-title">Anonymous & Professional</div>
-      <div class="trust-text">No names, emails, or IDs — just honest 1–5 ratings. Every review is 100% confidential.</div>
-    </div>
-  </div>
-
-  <form method="get" class="row">
-    <input class="input" name="q" list="names"
-           placeholder="Search by captain, base, or fleet..." value="{{ q }}">
-    <button class="btn" type="submit">Search</button>
-    <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
-  </form>
-
-  <datalist id="names">
-    {% for n in all_names %}
-      <option value="{{ n }}"></option>
-    {% endfor %}
-  </datalist>
-
-  <div class="cards">
-  {% for c, avg, count in data %}
-    <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
-      <div class="card-title">{{ c.name }}</div>
-      <div class="muted">{{ c.base or "—" }} · {{ c.fleet or "—" }}</div>
-      <div class="mt8">
-        {% if count >= min_display %}
-          Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)
-        {% elif count > 0 %}
-          <em>More ratings needed ({{ count }}/{{ min_display }})</em>
-        {% else %}
-          <em>No reviews yet</em>
-        {% endif %}
-      </div>
-    </a>
-  {% endfor %}
-  </div>
-{% endif %}
-
-{% endblock %}
-"""
-)
-
-# Captain page
-_write_if_missing(
-    TEMPLATES / "captain.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<div class="row space-between center">
-  <div>
-    <h2>{{ captain.name }}</h2>
-    <div class="muted">{{ captain.base or "—" }} · {{ captain.fleet or "—" }}</div>
-    {% if last_updated %}
-      <div class="small muted">Last updated {{ last_updated }}{% if pending_count %} · {{ pending_count }} pending suggestion{{ 's' if pending_count != 1 else '' }}{% endif %}</div>
-    {% endif %}
-  </div>
-  <div class="row" style="gap:8px;">
-    <a class="btn" href="{{ url_for('review_new', cid=captain.id) }}">Rate this Captain</a>
-    <a class="btn subtle" href="{{ url_for('suggest_update', cid=captain.id) }}">Suggest Update</a>
-  </div>
-</div>
-
-{% if count >= min_display %}
-  <p class="mt12">Overall: <strong>{{ overall }}</strong> / 5 (based on {{ count }} reviews)</p>
-
-  <h3>Operational & Teamwork</h3>
-  <div class="grid">
-    {% for key,label in eval_labels_1 %}
-      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
-    {% endfor %}
-  </div>
-
-  <h3>Airmanship & Professional Conduct</h3>
-  <div class="grid">
-    {% for key,label in eval_labels_2 %}
-      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
-    {% endfor %}
-  </div>
-
-  <h3>Overall Impression</h3>
-  <div class="grid">
-    <div class="chip"><div>Would Fly Again</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get('would_fly_again',0)) }}</div></div>
-  </div>
-
-  <h3>Personality & Style <span class="small muted">(does not affect overall score)</span></h3>
-  <div class="grid">
-    {% for key,label in style_labels %}
-      <div class="chip"><div>{{ label }}</div><div class="chip-value">{{ '%.2f'|format(cat_avgs.get(key,0)) }}</div></div>
-    {% endfor %}
-  </div>
-{% elif count > 0 %}
-  <p class="mt12"><em>More ratings needed to show averages ({{ count }}/{{ min_display }}).</em></p>
-{% else %}
-  <p class="mt12"><em>No reviews yet. Be the first.</em></p>
-{% endif %}
-{% endblock %}
-"""
-)
-
-# New Review (radio scales)
-_write_if_missing(
-    TEMPLATES / "review_new.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<h2>Rate {{ captain.name }}</h2>
-<p class="muted small">(1 = negative → 5 = positive) • No text is collected.</p>
-
-<form method="post" class="col">
-  <h3 class="mt12">Crew Coordination & Workflow</h3>
-  {% for key, label, hint in eval_block_1 %}
-    <div class="q">
-      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
-      <div class="scale">
-        {% for v in range(1,6) %}
-          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
-        {% endfor %}
-      </div>
-    </div>
-  {% endfor %}
-
-  <h3 class="mt12">Airmanship & Professional Conduct</h3>
-  {% for key, label, hint in eval_block_2 %}
-    <div class="q">
-      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
-      <div class="scale">
-        {% for v in range(1,6) %}
-          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
-        {% endfor %}
-      </div>
-    </div>
-  {% endfor %}
-
-  <h3 class="mt12">Overall Impression</h3>
-  <div class="q">
-    <label class="q-label">Would Fly Again <span class="muted small">(1 = avoid → 5 = definitely would)</span></label>
-    <div class="scale">
-      {% for v in range(1,6) %}
-        <label class="dot"><input type="radio" name="would_fly_again" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
-      {% endfor %}
-    </div>
-  </div>
-
-  <h3 class="mt12">Personality & Style <span class="small muted">(does not affect overall score)</span></h3>
-  {% for key, label, hint in style_block %}
-    <div class="q">
-      <label class="q-label">{{ label }} <span class="muted small">({{ hint }})</span></label>
-      <div class="scale">
-        {% for v in range(1,6) %}
-          <label class="dot"><input type="radio" name="{{ key }}" value="{{ v }}" {% if v==3 %}checked{% endif %}><span>{{ v }}</span></label>
-        {% endfor %}
-      </div>
-    </div>
-  {% endfor %}
-
-  <button class="btn" type="submit">Submit</button>
-</form>
-{% endblock %}
-"""
-)
-
-# Login (kept for direct /login visits; homepage has hero form already)
-_write_if_missing(
-    TEMPLATES / "login.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<h2>Access</h2>
-<form method="post" class="col" style="max-width:420px;">
-  <input class="input" name="code" placeholder="Access Code" required>
-  <button class="btn" type="submit">Enter</button>
-</form>
-{% endblock %}
-"""
-)
-
-# Add Captain
-_write_if_missing(
-    TEMPLATES / "captain_new.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<h2>Add a Captain</h2>
-<form method="post" class="col" style="max-width:520px;">
-  <label>Name
-    <input class="input" name="name" placeholder="e.g., Taylor Nguyen" required>
-  </label>
-  <label>Base
-    <select class="input" name="base" required>
-      <option value="" selected disabled>Select base</option>
-      {% for b in bases %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Fleet
-    <select class="input" name="fleet" required>
-      <option value="" selected disabled>Select fleet</option>
-      {% for f in fleets %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
-    </select>
-  </label>
-  <button class="btn" type="submit">Add Captain</button>
-</form>
-{% endblock %}
-"""
-)
-
-# Suggest Update
-_write_if_missing(
-    TEMPLATES / "suggest_update.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<h2>Suggest Base/Fleet Update for {{ captain.name }}</h2>
-<p class="small muted">When two different FOs suggest the same change within 14 days, it auto-applies.</p>
-<form method="post" class="col" style="max-width:520px;">
-  <label>New Base
-    <select class="input" name="base" required>
-      <option value="" selected disabled>Select base</option>
-      {% for b in bases %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>New Fleet
-    <select class="input" name="fleet" required>
-      <option value="" selected disabled>Select fleet</option>
-      {% for f in fleets %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
-    </select>
-  </label>
-  <button class="btn" type="submit">Submit Suggestion</button>
-</form>
-
-{% if pending and pending|length > 0 %}
-  <h3 class="mt12">Pending Suggestions</h3>
-  <ul>
-    {% for s in pending %}
-      <li class="small">{{ s.new_base }} / {{ s.new_fleet }} • submitted {{ s.created_at.date() }}</li>
-    {% endfor %}
-  </ul>
-{% endif %}
-{% endblock %}
-"""
-)
-
-# Top Rated page
-_write_if_missing(
-    TEMPLATES / "top.html",
-    """
-{% extends "base.html" %}
-{% block content %}
-<h2>Top-rated Captains</h2>
-
-<form class="row" method="get" style="margin-top:8px;gap:8px;">
-  <select class="input" name="base">
-    <option value="">All Bases</option>
-    {% for b in bases %}
-      <option value="{{ b }}" {% if sel_base==b %}selected{% endif %}>{{ b }}</option>
-    {% endfor %}
-  </select>
-  <select class="input" name="fleet">
-    <option value="">All Fleets</option>
-    {% for f in fleets %}
-      <option value="{{ f }}" {% if sel_fleet==f %}selected{% endif %}>{{ f }}</option>
-    {% endfor %}
-  </select>
-  <button class="btn" type="submit">Filter</button>
-</form>
-
-{% if rows and rows|length > 0 %}
-  <div class="cards" style="margin-top:12px;">
-    {% for c, avg, count in rows %}
-      <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
-        <div class="card-title">{{ c.name }}</div>
-        <div class="muted">{{ c.base }} · {{ c.fleet }}</div>
-        <div class="mt8">Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)</div>
-      </a>
-    {% endfor %}
-  </div>
-{% else %}
-  <p class="mt12"><em>No captains meet the {{ min_reviews }}-review minimum for this filter.</em></p>
-{% endif %}
-{% endblock %}
-"""
-)
-
-# CSS (no modal styles; includes hero section)
-_write_if_missing(
-    STATIC / "main.css",
-    """
-:root{--fg:#111;--bg:#fff;--muted:#666;--accent:#2563eb;--card:#f7f7f8;--line:#e5e7eb}
-*{box-sizing:border-box}
-body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--fg);background:var(--bg)}
-a{color:inherit;text-decoration:none}
-.wrap{max-width:960px;margin:0 auto;padding:16px}
-.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
-h1{font-size:20px;margin:8px 0}h2{margin:12px 0 4px}
-.row{display:flex;gap:8px;align-items:flex-start}
-.col{display:flex;flex-direction:column;gap:12px}
-.space-between{justify-content:space-between}
-.center{align-items:center}
-.mt8{margin-top:8px}.mt12{margin-top:12px}
-.small{font-size:12px}.muted{color:var(--muted)}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:500;transition:opacity .15s}
-.btn:hover{opacity:.95}.btn.subtle{background:#eef2ff;color:#1d4ed8}
-.input{padding:10px 12px;border:1px solid var(--line);border-radius:10px;min-width:240px;font-size:14px}
-.flash{background:#fff3cd;color:#8a6d3b;border:1px solid #ffeeba;border-radius:10px;padding:8px 12px;margin:12px 0}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:12px}
-.card{border:1px solid var(--line);background:var(--card);padding:12px;border-radius:14px;transition:transform .1s,box-shadow .1s}
-.card:hover{transform:translateY(-2px);box-shadow:0 2px 6px rgba(0,0,0,.05)}
-.card-title{font-weight:600;margin-bottom:4px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:12px}
-.chip{border:1px solid var(--line);padding:10px;border-radius:12px;background:#fff;display:flex;justify-content:space-between;align-items:center}
-.chip-value{font-weight:700}
-.trust{display:flex;gap:10px;align-items:flex-start;background:#f7f9fc;border:1px solid var(--line);padding:12px;border-radius:12px;margin-bottom:12px}
-.trust-title{font-weight:600}.trust .shield{font-size:20px}
-.q{padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff}
-.q-label{display:block;margin-bottom:6px;font-weight:600}
-.scale{display:flex;gap:14px;align-items:center}
-.dot{display:flex;flex-direction:column;align-items:center;font-size:12px;color:#444}
-.dot input[type=radio]{accent-color:#2563eb;transform:scale(1.2);cursor:pointer}
-
-/* Hero Access (Option B) */
-.hero{border:1px solid var(--line);background:#f7f9fc;border-radius:12px;padding:24px;margin-top:8px}
-.hero-title{margin:0 0 4px}
-.hero-form .input{min-width:220px}
-"""
-)
-
-# ----------------------------
-# Database (SQLAlchemy)
+# DB (SQLite / SQLAlchemy)
 # ----------------------------
 Base = declarative_base()
 engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
@@ -449,7 +40,7 @@ engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 class Captain(Base):
     __tablename__ = "captains"
     id = Column(Integer, primary_key=True)
-    employee_id = Column(String, unique=True, nullable=False)   # non-PII slug like CA-XXXX
+    employee_id = Column(String, unique=True, nullable=False)  # non-PII slug e.g., CA-XXXX
     name = Column(String, nullable=False)
     base = Column(String, nullable=False)
     fleet = Column(String, nullable=False)
@@ -462,11 +53,12 @@ class Review(Base):
     captain_id = Column(Integer, ForeignKey("captains.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewer_hash = Column(String, nullable=True)
+
     # Crew Coordination & Workflow
     crm_inclusion = Column(Integer, nullable=False)
     communication = Column(Integer, nullable=False)
     easy_to_fly = Column(Integer, nullable=False)
-    micromanage = Column(Integer, nullable=False)  # inverse later
+    micromanage = Column(Integer, nullable=False)  # inverted in calc
     workload_share = Column(Integer, nullable=False)
     helps_box = Column(Integer, nullable=False)
     helps_walk = Column(Integer, nullable=False)
@@ -482,6 +74,7 @@ class Review(Base):
     chattiness = Column(Integer, nullable=False)
     mentorship = Column(Integer, nullable=False)
     humor_vibe = Column(Integer, nullable=False)
+
     captain = relationship("Captain", back_populates="reviews")
 
 class CaptainAssignment(Base):
@@ -500,7 +93,7 @@ class EditSuggestion(Base):
     captain_id = Column(Integer, ForeignKey("captains.id"), nullable=False)
     new_base = Column(String, nullable=False)
     new_fleet = Column(String, nullable=False)
-    status = Column(String, default="pending")  # pending/approved/rejected/expired
+    status = Column(String, default="pending")  # pending/approved/rejected
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     creator_hash = Column(String, nullable=False)
@@ -509,14 +102,15 @@ def bootstrap_db():
     Base.metadata.create_all(engine)
     with Session(engine) as s:
         if s.query(Captain).count() == 0:
-            for nm, b, f in [("John Smith","ORD","737"),("Alex Chen","IAH","787"),("Maria Lopez","DEN","A320")]:
-                c = Captain(employee_id=f"CA-{secrets.token_hex(4).upper()}", name=nm, base=b, fleet=f)
+            for nm, b, f in [("John Smith","ORD","737"), ("Alex Chen","IAH","787"), ("Maria Lopez","DEN","A320")]:
+                c = Captain(employee_id=f"CA-{secrets.token_hex(4).upper()}",
+                            name=nm, base=b, fleet=f)
                 s.add(c); s.flush()
                 s.add(CaptainAssignment(captain_id=c.id, base=b, fleet=f))
             s.commit()
 
 # ----------------------------
-# Ratings config & helpers
+# Rating config & helpers
 # ----------------------------
 def inv(x:int)->int: return 6 - x
 
@@ -544,9 +138,6 @@ STYLE_BLOCK = [
 
 EVAL_KEYS = [k for k,_,_ in EVAL_BLOCK_1 + EVAL_BLOCK_2] + ["would_fly_again"]
 STYLE_KEYS = [k for k,_,_ in STYLE_BLOCK]
-EVAL_LABELS_1 = [(k,l) for k,l,_ in EVAL_BLOCK_1]
-EVAL_LABELS_2 = [(k,l) for k,l,_ in EVAL_BLOCK_2]
-STYLE_LABELS = [(k,l) for k,l,_ in STYLE_BLOCK]
 
 def overall_from_review(r) -> float:
     vals = [
@@ -558,22 +149,18 @@ def overall_from_review(r) -> float:
     ]
     return sum(vals)/len(vals)
 
-# ----------------------------
-# Anonymous cookie token -> hashed reviewer id
-# ----------------------------
+# Reviewer token (anonymous)
 REV_COOKIE = "rev_token"
-REV_COOKIE_MAX_AGE = 60*60*24*365*2  # 2 years
+REV_COOKIE_MAX_AGE = 60*60*24*365*2
 
 def get_or_set_reviewer_token():
     token = request.cookies.get(REV_COOKIE)
-    if token:
-        return token, None
+    if token: return token, None
     new_token = str(uuid.uuid4())
     return new_token, new_token
 
 def reviewer_hash_from_token(token: str) -> str:
-    digest = hmac.new(REVIEWER_PEPPER.encode(), token.encode(), hashlib.sha256).hexdigest()
-    return digest[:32]
+    return hmac.new(REVIEWER_PEPPER.encode(), token.encode(), hashlib.sha256).hexdigest()[:32]
 
 def new_identifier(prefix="CA"):
     alphabet = string.ascii_uppercase + string.digits
@@ -584,11 +171,11 @@ def new_identifier(prefix="CA"):
 # ----------------------------
 @app.route("/", methods=["GET"])
 def index():
+    # Not authed → show hero access only (no data)
     if not session.get("authed"):
-        # Show hero access (no data needed)
         return render_template("index.html", title=APP_NAME)
 
-    # Authed: show search + cards
+    # Authed → search + cards
     q = (request.args.get("q", "") or "").strip()
     with Session(engine) as s:
         stmt = select(Captain)
@@ -628,7 +215,6 @@ def login():
             session["authed"] = True
             return redirect(url_for("index"))
         flash("Invalid code.")
-    # Optional: if someone hits /login directly, show the simple form
     return render_template("login.html", title=f"{APP_NAME} · Access")
 
 @app.route("/captains/<int:cid>")
@@ -644,8 +230,7 @@ def captain_page(cid):
             all_keys = EVAL_KEYS + STYLE_KEYS
             for key in all_keys:
                 vals = [getattr(r,key) for r in reviews]
-                if key == "micromanage":
-                    vals = [inv(v) for v in vals]
+                if key == "micromanage": vals = [inv(v) for v in vals]
                 cat_avgs[key] = round(sum(vals)/len(vals), 2)
             overall = round(sum(cat_avgs[k] for k in EVAL_KEYS)/len(EVAL_KEYS), 2)
         last_updated = c.updated_at.date() if c.updated_at else None
@@ -656,7 +241,9 @@ def captain_page(cid):
         "captain.html",
         captain=c, count=count, min_display=MIN_DISPLAY_REVIEWS,
         cat_avgs=cat_avgs, overall=overall, last_updated=last_updated, pending_count=pending_count,
-        eval_labels_1=EVAL_LABELS_1, eval_labels_2=EVAL_LABELS_2, style_labels=STYLE_LABELS,
+        eval_labels_1=[(k,l) for k,l,_ in EVAL_BLOCK_1],
+        eval_labels_2=[(k,l) for k,l,_ in EVAL_BLOCK_2],
+        style_labels=[(k,l) for k,l,_ in STYLE_BLOCK],
         title=f"{APP_NAME} · {c.name}"
     )
 
@@ -742,12 +329,12 @@ def suggest_update(cid):
             flash("Select a valid base and fleet.")
             return redirect(url_for("suggest_update", cid=cid))
         with Session(engine) as s:
-            existing_mine = s.scalars(select(EditSuggestion).where(and_(
+            mine = s.scalars(select(EditSuggestion).where(and_(
                 EditSuggestion.captain_id==cid,
                 EditSuggestion.creator_hash==creator_hash,
                 EditSuggestion.status=="pending"
             ))).first()
-            if existing_mine:
+            if mine:
                 flash("You already have a pending suggestion for this captain.")
                 resp = redirect(url_for("suggest_update", cid=cid))
                 if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
@@ -771,10 +358,9 @@ def suggest_update(cid):
                     CaptainAssignment.captain_id==cid,
                     CaptainAssignment.end_date.is_(None)
                 ))).first()
-                if current:
-                    current.end_date = datetime.utcnow()
+                if current: current.end_date = datetime.utcnow()
                 s.add(CaptainAssignment(captain_id=cid, base=new_base, fleet=new_fleet))
-                cap.base = new_base; cap.fleet = new_fleet; cap.updated_at = datetime.utcnow()
+                cap.base, cap.fleet, cap.updated_at = new_base, new_fleet, datetime.utcnow()
                 s.commit()
                 flash(f"Consensus reached: Updated to {new_base} / {new_fleet}.")
                 resp = redirect(url_for("captain_page", cid=cid))
@@ -830,10 +416,10 @@ def top_rated():
     )
 
 # ----------------------------
-# Main (bind to 0.0.0.0:PORT for Render)
+# Main (Render-friendly)
 # ----------------------------
 if __name__ == "__main__":
     bootstrap_db()
-    port = int(os.environ.get("PORT", 5000))  # Render supplies PORT
+    port = int(os.environ.get("PORT", 5000))
     print(f"\n{APP_NAME} running on http://0.0.0.0:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
