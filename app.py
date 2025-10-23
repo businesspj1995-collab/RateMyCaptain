@@ -1,8 +1,9 @@
 # app.py
-# Rate My Captain - Single-file Flask app implementing your finalized spec
-# Run: python app.py  -> open http://127.0.0.1:5000
+# FOmatters / Rate My Captain - Single-file Flask app (consolidated)
+# Run locally: python app.py  -> http://127.0.0.1:5000
+
 import os, uuid, hmac, hashlib, secrets, string
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, make_response
@@ -10,21 +11,21 @@ from sqlalchemy import create_engine, select, Column, Integer, String, DateTime,
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 # ----------------------------
-# Config
+# Config (env with safe fallbacks)
 # ----------------------------
-APP_NAME = "Rate My Captain"
+APP_NAME = "FOmatters"
 DB_PATH = "app.db"
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
-INVITE_CODE = os.getenv("INVITE_CODE", "fly-safe")
-REVIEWER_PEPPER = os.getenv("REVIEWER_PEPPER", "dev-pepper-change-me")
+SECRET_KEY = os.getenv("SECRET_KEY") or "dev-secret-change-me"
+INVITE_CODE = os.getenv("INVITE_CODE") or "FOmatters"  # your current code
+REVIEWER_PEPPER = os.getenv("REVIEWER_PEPPER") or "dev-pepper-change-me"
 MIN_DISPLAY_REVIEWS = 3
 
 SUGGESTION_WINDOW_DAYS = 14
 CONSENSUS_THRESHOLD = 2
 SUGGESTION_EXPIRE_DAYS = 60
 
-ALLOWED_BASES = ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","DCA","SFO","LAX","CLE","LGA","GUM","LAS","MCO"]
-  # edit as you like
+# Updated bases (added DCA, GUM, LAS, MCO)
+ALLOWED_BASES = ["ORD","IAH","DEN","EWR","IAD","DCA","SFO","LAX","CLE","LGA","GUM","LAS","MCO"]
 ALLOWED_FLEETS = ["737","757","767","777","787","A319","A320","A321"]
 
 # ----------------------------
@@ -37,14 +38,16 @@ app.config["SECRET_KEY"] = SECRET_KEY
 # Filesystem bootstrap (write templates/css if missing)
 # ----------------------------
 BASE_DIR = Path(__file__).parent
-(TEMPLATES := BASE_DIR / "templates").mkdir(exist_ok=True)
-(STATIC := BASE_DIR / "static").mkdir(exist_ok=True)
+TEMPLATES = BASE_DIR / "templates"
+STATIC = BASE_DIR / "static"
+TEMPLATES.mkdir(exist_ok=True)
+STATIC.mkdir(exist_ok=True)
 
 def _write_if_missing(path: Path, content: str):
     if not path.exists():
         path.write_text(content.strip("\n"), encoding="utf-8")
 
-# Base layout
+# Base layout (updated footer tagline + nav Top Rated)
 _write_if_missing(
     TEMPLATES / "base.html",
     """
@@ -52,19 +55,20 @@ _write_if_missing(
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>{{ title or "Rate My Captain" }}</title>
+  <title>{{ title or "FOmatters" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
 </head>
 <body>
   <header class="wrap">
     <div class="hdr">
-      <h1><a href="{{ url_for('index') }}">Rate My Captain</a></h1>
+      <h1><a href="{{ url_for('index') }}">FOmatters</a></h1>
       <nav>
         {% if not session.get('authed') %}
           <a class="btn" href="{{ url_for('login') }}">Enter</a>
         {% else %}
           <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
+          <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
         {% endif %}
       </nav>
     </div>
@@ -79,14 +83,14 @@ _write_if_missing(
   </main>
   <footer class="wrap small muted" style="margin-top:40px;">
     <hr/>
-    <p>Built by line pilots for line pilots. Keep it professional.</p>
+    <p>Built by FOs, for FOs.</p>
   </footer>
 </body>
 </html>
 """
 )
 
-# Homepage
+# Homepage (with trust banner + search + datalist for autocomplete)
 _write_if_missing(
     TEMPLATES / "index.html",
     """
@@ -101,12 +105,19 @@ _write_if_missing(
 </div>
 
 <form method="get" class="row">
-  <input class="input" name="q" placeholder="Search by captain, base, or fleet..." value="{{ q }}">
+  <input class="input" name="q" list="names"
+         placeholder="Search by captain, base, or fleet..." value="{{ q }}">
   <button class="btn" type="submit">Search</button>
   {% if session.get('authed') %}
     <a class="btn" href="{{ url_for('captain_new') }}">Add Captain</a>
   {% endif %}
 </form>
+
+<datalist id="names">
+  {% for n in all_names %}
+    <option value="{{ n }}"></option>
+  {% endfor %}
+</datalist>
 
 <div class="cards">
 {% for c, avg, count in data %}
@@ -188,7 +199,7 @@ _write_if_missing(
 """
 )
 
-# New Review page with radio scales and sections
+# New Review page (radio scales)
 _write_if_missing(
     TEMPLATES / "review_new.html",
     """
@@ -330,6 +341,47 @@ _write_if_missing(
 """
 )
 
+# Top Rated page (new)
+_write_if_missing(
+    TEMPLATES / "top.html",
+    """
+{% extends "base.html" %}
+{% block content %}
+<h2>Top-rated Captains</h2>
+
+<form class="row" method="get" style="margin-top:8px;gap:8px;">
+  <select class="input" name="base">
+    <option value="">All Bases</option>
+    {% for b in bases %}
+      <option value="{{ b }}" {% if sel_base==b %}selected{% endif %}>{{ b }}</option>
+    {% endfor %}
+  </select>
+  <select class="input" name="fleet">
+    <option value="">All Fleets</option>
+    {% for f in fleets %}
+      <option value="{{ f }}" {% if sel_fleet==f %}selected{% endif %}>{{ f }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn" type="submit">Filter</button>
+</form>
+
+{% if rows and rows|length > 0 %}
+  <div class="cards" style="margin-top:12px;">
+    {% for c, avg, count in rows %}
+      <a class="card" href="{{ url_for('captain_page', cid=c.id) }}">
+        <div class="card-title">{{ c.name }}</div>
+        <div class="muted">{{ c.base }} · {{ c.fleet }}</div>
+        <div class="mt8">Avg: <strong>{{ "%.2f"|format(avg) }}</strong> ({{ count }} reviews)</div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="mt12"><em>No captains meet the {{ min_reviews }}-review minimum for this filter.</em></p>
+{% endif %}
+{% endblock %}
+"""
+)
+
 # CSS
 _write_if_missing(
     STATIC / "main.css",
@@ -383,7 +435,6 @@ class Captain(Base):
     base = Column(String, nullable=False)
     fleet = Column(String, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow)
-
     reviews = relationship("Review", back_populates="captain")
 
 class Review(Base):
@@ -442,7 +493,6 @@ class EditSuggestion(Base):
 
 def bootstrap_db():
     Base.metadata.create_all(engine)
-    # Seed a couple captains if empty
     with Session(engine) as s:
         if s.query(Captain).count() == 0:
             for nm, b, f in [("John Smith","ORD","737"),("Alex Chen","IAH","787"),("Maria Lopez","DEN","A320")]:
@@ -452,14 +502,11 @@ def bootstrap_db():
                 s.add(CaptainAssignment(captain_id=c.id, base=b, fleet=f))
             s.commit()
 
-bootstrap_db()
-
 # ----------------------------
 # Ratings config & helpers
 # ----------------------------
 def inv(x:int)->int: return 6 - x
 
-# Keys, labels, and hints (1→5)
 EVAL_BLOCK_1 = [
   ("crm_inclusion", "CRM & Inclusion", "1 = shuts FO out → 5 = collaborative"),
   ("communication", "Communication", "1 = poor/confusing → 5 = clear and timely"),
@@ -484,13 +531,11 @@ STYLE_BLOCK = [
 
 EVAL_KEYS = [k for k,_,_ in EVAL_BLOCK_1 + EVAL_BLOCK_2] + ["would_fly_again"]
 STYLE_KEYS = [k for k,_,_ in STYLE_BLOCK]
-
-# For captain page grouping
 EVAL_LABELS_1 = [(k,l) for k,l,_ in EVAL_BLOCK_1]
 EVAL_LABELS_2 = [(k,l) for k,l,_ in EVAL_BLOCK_2]
 STYLE_LABELS = [(k,l) for k,l,_ in STYLE_BLOCK]
 
-def overall_from_review(r: Review) -> float:
+def overall_from_review(r) -> float:
     vals = [
         r.crm_inclusion, r.communication, r.easy_to_fly,
         inv(r.micromanage),
@@ -526,31 +571,35 @@ def new_identifier(prefix="CA"):
 # ----------------------------
 @app.route("/")
 def index():
-    stmt = select(Captain)
-    q = request.args.get("q", "")
+    q = (request.args.get("q", "") or "").strip()
 
-    if q:
-        like = f"%{q}%"
-        stmt = stmt.where(or_(Captain.name.ilike(like),
-                              Captain.base.ilike(like),
-                              Captain.fleet.ilike(like)))
-
-    captains = s.scalars(stmt.order_by(Captain.name.asc())).all()
-
-    data = []
     with Session(engine) as s:
+        # build query
+        stmt = select(Captain)
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(or_(
+                Captain.name.ilike(like),
+                Captain.base.ilike(like),
+                Captain.fleet.ilike(like)
+            ))
+
+        # fetch captains
+        captains = s.scalars(stmt.order_by(Captain.name.asc())).all()
+
+        # build cards data (avg only shown if enough reviews)
+        data = []
         for c in captains:
             reviews = s.scalars(select(Review).where(Review.captain_id == c.id)).all()
             count = len(reviews)
             avg = None
             if count >= MIN_DISPLAY_REVIEWS:
                 avg = sum(overall_from_review(r) for r in reviews) / count
-                data.append((c, avg, count))
+            data.append((c, avg, count))
 
-        # 👇 this is the new line that gathers all captain names for autocomplete
+        # names for the autocomplete
         all_names = [c.name for c in captains]
 
-    # 👇 updated render_template call that passes all_names to index.html
     return render_template(
         "index.html",
         data=data,
@@ -579,7 +628,6 @@ def captain_page(cid):
         cat_avgs = {}
         overall = None
         if count >= MIN_DISPLAY_REVIEWS:
-            # compute per-key averages (invert micromanage)
             all_keys = EVAL_KEYS + STYLE_KEYS
             for key in all_keys:
                 vals = [getattr(r,key) for r in reviews]
@@ -587,7 +635,6 @@ def captain_page(cid):
                     vals = [inv(v) for v in vals]
                 cat_avgs[key] = round(sum(vals)/len(vals), 2)
             overall = round(sum(cat_avgs[k] for k in EVAL_KEYS)/len(EVAL_KEYS), 2)
-        # last updated & pending suggestions
         last_updated = c.updated_at.date() if c.updated_at else None
         pending_count = s.scalar(select(func.count(EditSuggestion.id)).where(
             and_(EditSuggestion.captain_id==c.id, EditSuggestion.status=="pending")
@@ -603,13 +650,10 @@ def captain_page(cid):
 @app.route("/review/new/<int:cid>", methods=["GET","POST"])
 def review_new(cid):
     if not session.get("authed"): return redirect(url_for("login"))
-
     with Session(engine) as s:
         c = s.get(Captain, cid)
         if not c: return "Not found", 404
-
     token, to_set = get_or_set_reviewer_token()
-
     if request.method == "POST":
         r_hash = reviewer_hash_from_token(token)
         twentyfour_ago = datetime.utcnow() - timedelta(hours=24)
@@ -624,21 +668,16 @@ def review_new(cid):
                 resp = redirect(url_for("captain_page", cid=cid))
                 if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
                 return resp
-
             payload = {}
-            # Collect evaluative & style keys
             for key in EVAL_KEYS + STYLE_KEYS:
                 v = request.form.get(key)
                 payload[key] = int(v) if v and v.isdigit() else 3
-
             r = Review(captain_id=cid, reviewer_hash=r_hash, **payload)
             s.add(r)
             s.commit()
-
         resp = redirect(url_for("captain_page", cid=cid))
         if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
         return resp
-
     return make_response(render_template(
         "review_new.html",
         captain=c,
@@ -679,23 +718,18 @@ def captain_new():
 @app.route("/captain/<int:cid>/suggest", methods=["GET","POST"])
 def suggest_update(cid):
     if not session.get("authed"): return redirect(url_for("login"))
-
     with Session(engine) as s:
         c = s.get(Captain, cid)
         if not c: return "Not found", 404
-
     token, to_set = get_or_set_reviewer_token()
     creator_hash = reviewer_hash_from_token(token)
-
     if request.method == "POST":
         new_base = (request.form.get("base") or "").strip().upper()
         new_fleet = (request.form.get("fleet") or "").strip().upper()
         if new_base not in ALLOWED_BASES or new_fleet not in ALLOWED_FLEETS:
             flash("Select a valid base and fleet.")
             return redirect(url_for("suggest_update", cid=cid))
-
         with Session(engine) as s:
-            # Prevent multiple active suggestions by same creator for this captain
             existing_mine = s.scalars(select(EditSuggestion).where(and_(
                 EditSuggestion.captain_id==cid,
                 EditSuggestion.creator_hash==creator_hash,
@@ -706,12 +740,8 @@ def suggest_update(cid):
                 resp = redirect(url_for("suggest_update", cid=cid))
                 if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
                 return resp
-
-            # Create suggestion
             sug = EditSuggestion(captain_id=cid, new_base=new_base, new_fleet=new_fleet, creator_hash=creator_hash)
             s.add(sug); s.flush()
-
-            # Check for consensus within window among different creators
             since = datetime.utcnow() - timedelta(days=SUGGESTION_WINDOW_DAYS)
             matches = s.scalars(select(EditSuggestion).where(and_(
                 EditSuggestion.captain_id==cid,
@@ -720,22 +750,17 @@ def suggest_update(cid):
                 EditSuggestion.status=="pending",
                 EditSuggestion.created_at >= since
             ))).all()
-
-            # unique creators
             creators = set(m.creator_hash for m in matches)
             if len(creators) >= CONSENSUS_THRESHOLD:
-                # Approve all matching pending; update captain + history
                 for m in matches:
                     m.status = "approved"; m.resolved_at = datetime.utcnow()
                 cap = s.get(Captain, cid)
-                # Close current assignment
                 current = s.scalars(select(CaptainAssignment).where(and_(
                     CaptainAssignment.captain_id==cid,
                     CaptainAssignment.end_date.is_(None)
                 ))).first()
                 if current:
                     current.end_date = datetime.utcnow()
-                # Add new assignment and update captain
                 s.add(CaptainAssignment(captain_id=cid, base=new_base, fleet=new_fleet))
                 cap.base = new_base; cap.fleet = new_fleet; cap.updated_at = datetime.utcnow()
                 s.commit()
@@ -749,14 +774,11 @@ def suggest_update(cid):
                 resp = redirect(url_for("captain_page", cid=cid))
                 if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
                 return resp
-
-    # GET: show form + list pending
     with Session(engine) as s:
         pending = s.scalars(select(EditSuggestion).where(and_(
             EditSuggestion.captain_id==cid,
             EditSuggestion.status=="pending"
         )).order_by(EditSuggestion.created_at.desc())).all()
-
     resp = make_response(render_template(
         "suggest_update.html",
         captain=c, bases=ALLOWED_BASES, fleets=ALLOWED_FLEETS, pending=pending,
@@ -765,12 +787,9 @@ def suggest_update(cid):
     if to_set: resp.set_cookie(REV_COOKIE, to_set, max_age=REV_COOKIE_MAX_AGE, httponly=True, samesite='Lax')
     return resp
 
-# ----------------------------
-# Main
-# ----------------------------
+# ---------- NEW: Top Rated ----------
 @app.route("/top")
 def top_rated():
-    # Optional filters: /top?base=ORD&fleet=737
     base = (request.args.get("base") or "").upper().strip()
     fleet = (request.args.get("fleet") or "").upper().strip()
     min_reviews = MIN_DISPLAY_REVIEWS
@@ -788,27 +807,24 @@ def top_rated():
             count = len(reviews)
             if count < min_reviews:
                 continue
-            avg = sum(overall_from_review(r) for r in reviews) / count
+            avg = sum(overall_from_review(r) for r in reviews)/count
             rows.append((c, round(avg, 2), count))
 
-    # Sort: best average first, then by review count (desc)
     rows.sort(key=lambda x: (x[1], x[2]), reverse=True)
     rows = rows[:top_limit]
 
     return render_template(
         "top.html",
-        rows=rows,
-        bases=ALLOWED_BASES,
-        fleets=ALLOWED_FLEETS,
-        sel_base=base,
-        sel_fleet=fleet,
-        min_reviews=min_reviews,
+        rows=rows, bases=ALLOWED_BASES, fleets=ALLOWED_FLEETS,
+        sel_base=base, sel_fleet=fleet, min_reviews=min_reviews,
         title="Top Rated"
     )
 
+# ----------------------------
+# Main (bind to 0.0.0.0:PORT for Render)
+# ----------------------------
 if __name__ == "__main__":
     bootstrap_db()
-    port = int(os.environ.get("PORT", 5000))  # Render assigns this dynamically
-    print(f"\n{APP_NAME} running on 0.0.0.0:{port} (Render)\n")
+    port = int(os.environ.get("PORT", 5000))  # Render supplies PORT
+    print(f"\n{APP_NAME} running on http://0.0.0.0:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
-
