@@ -2,24 +2,27 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>{{ title or "FOmatters" }}</title>
+  <title>{{ title or "Rate My Captain" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
 </head>
 <body>
   <header class="wrap">
-    <div class="hdr">
-      <h1><a href="{{ url_for('index') }}">FOmatters</a></h1>
-      <nav>
-        {% if not session.get('authed') %}
-          <a class="btn subtle" href="{{ url_for('index') }}">Access</a>
-        {% else %}
-          <a class="btn subtle" href="{{ url_for('index') }}">Home</a>
-          <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
-        {% endif %}
-      </nav>
-    </div>
-  </header>
+  <div class="hdr">
+    <!-- Left: brand area becomes a Home link -->
+    <h1><a class="brand" href="{{ url_for('index') }}">Home</a></h1>
+
+    <!-- Right: only show Top Rated when authed; Access when not -->
+    <nav>
+      {% if not session.get('authed') %}
+        <a class="btn subtle" href="{{ url_for('index') }}">Access</a>
+      {% else %}
+        <a class="btn subtle" href="{{ url_for('top_rated') }}">Top Rated</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
 
   <main class="wrap">
     {% with messages = get_flashed_messages() %}
@@ -34,5 +37,38 @@
     <hr/>
     <p>Built by FOs, for FOs.</p>
   </footer>
+
+  {% if not session.get('authed') %}
+  <!-- BLOCKING OVERLAY + SMALL ACCESS BOX (no close button) -->
+  <div id="lockOverlay" class="lock-overlay"></div>
+  <div id="accessModal" class="access-modal" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+    <h3 id="accessTitle" style="margin:0 0 6px;">Access Portal</h3>
+    <p class="muted small" style="margin:0 0 10px;">FOs only. Enter the access code to continue.</p>
+    <form method="post" action="{{ url_for('login') }}" class="col" onsubmit="this.querySelector('button').disabled=true;">
+      <input class="input" name="code" placeholder="Access Code" required autocomplete="off">
+      <button class="btn" type="submit">Unlock</button>
+    </form>
+  </div>
+
+  <script>
+  // Auto-open the lock on page load; block scroll/interaction
+  (function(){
+    var overlay = document.getElementById('lockOverlay');
+    var modal = document.getElementById('accessModal');
+    if (!overlay || !modal) return;
+    document.body.classList.add('no-scroll');
+    overlay.classList.add('show');
+    modal.classList.add('show');
+    setTimeout(function(){
+      var i = modal.querySelector('input[name="code"]');
+      if (i) i.focus();
+    }, 150);
+    // Block ESC close
+    window.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') { e.preventDefault(); }
+    });
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>
