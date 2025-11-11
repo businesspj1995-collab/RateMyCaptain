@@ -1,0 +1,5 @@
+{
+  "name": "RateMyCaptain",
+  "description": "A simple, anonymous way for First Officers to rate Captains based on real flight-deck experiences. Built by FOs, for FOs.",
+  "requestFramePermissions": []
+}
